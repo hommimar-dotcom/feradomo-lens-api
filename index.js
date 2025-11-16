@@ -31,13 +31,6 @@ app.get('/', (req, res) => {
 // Ana endpoint: /lens
 app.post('/lens', upload.single('scene'), async (req, res) => {
   try {
-    // Dosya gelmemişse
-    if (!req.file) {
-      return res
-        .status(400)
-        .json({ error: 'Bir sahne (fotoğraf) yüklemen gerekiyor.' });
-    }
-
     // Şimdilik DEMO: Gerçek AI yerine sabit bir demo görüntü dönüyoruz.
     // (Önce backend tamamen stabil olsun, sonra OpenAI entegrasyonunu ekleriz.)
     const demoUrl =
@@ -55,7 +48,7 @@ app.post('/lens', upload.single('scene'), async (req, res) => {
     /**
      * NOT:
      * Buraya daha sonra gerçek OpenAI / başka AI servisi çağrısını ekleyeceğiz.
-     * OPENAI_API_KEY'i environment variable olarak Render tarafına zaten koymuştun.
+     * OPENAI_API_KEY'i environment variable olarak Render tarafına zaten koydun.
      */
   } catch (err) {
     console.error('Lens hata:', err);
