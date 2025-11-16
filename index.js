@@ -82,15 +82,16 @@ Rules:
     `.trim();
 
     // OpenAI images/edits isteği için form-data hazırlığı
-    const formData = new FormData();
+        const formData = new FormData();
     formData.append('model', 'gpt-image-1');
     formData.append('prompt', prompt);
-    // Çıktıyı base64 olarak almak için:
-    formData.append('response_format', 'b64_json');
-    // Yatay dikey için yüksek kaliteli bir ölçü – istersen 1024x1024 yaparız
-    formData.append('size', '1536x1024');
-    formData.append('quality', 'high');
+
+    // gpt-image-1 zaten her zaman base64 döndürdüğü için response_format GÖNDERMİYORUZ.
+    // Bazı kombolarda 'quality' da hata verdiği için onu da sade bırakıyoruz.
+
+    formData.append('size', '1536x1024'); // istersen 1024x1024 yapabilirsin
     formData.append('n', '1');
+
 
     // Orijinal sahne fotoğrafını "image" alanına ekliyoruz
     formData.append('image', req.file.buffer, {
