@@ -31,30 +31,33 @@ app.get('/', (req, res) => {
 // Ana endpoint: /lens
 app.post('/lens', upload.single('scene'), async (req, res) => {
   try {
-    // Şimdilik DEMO: Gerçek AI yerine sabit bir demo görüntü dönüyoruz.
-    // (Önce backend tamamen stabil olsun, sonra OpenAI entegrasyonunu ekleriz.)
-    const demoUrl =
-      'https://images.pexels.com/photos/37347/office-freelancer-computer-business-37347.jpeg?auto=compress&cs=tinysrgb&w=1600';
+    // Dosya yoksa hata
+    if (!req.file) {
+      return res
+        .status(400)
+        .json({ error: 'Bir sahne (fotoğraf) yüklemen gerekiyor.' });
+    }
 
+    // Yüklenen dosyayı base64'e çevir
+    const base64 = req.file.buffer.toString('base64');
+    const mime = req.file.mimetype || 'image/jpeg';
+
+    // Şimdilik DEMO:
+    // - image: base64 string
+    // - mime: içerik tipi (jpeg/png vs.)
     return res.json({
       ok: true,
-      // front-end hangi ismi beklerse ikisini de verelim
-      imageUrl: demoUrl,
-      previewUrl: demoUrl,
+      image: base64,
+      mime: mime,
       message:
-        'Şu an demo modundayız, backend sorunsuz çalışıyor. Sonraki adım: gerçek sahneleme AI entegrasyonu. 💫'
+        'Şu an demo modundayız. Yüklediğin fotoğrafı geri gösteriyorum; bir sonraki adımda sehpayı bu sahnenin içine yerleştirecek AI modelini bağlayacağız. 💫'
     });
-
-    /**
-     * NOT:
-     * Buraya daha sonra gerçek OpenAI / başka AI servisi çağrısını ekleyeceğiz.
-     * OPENAI_API_KEY'i environment variable olarak Render tarafına zaten koydun.
-     */
   } catch (err) {
     console.error('Lens hata:', err);
     res.status(500).json({ error: 'Sunucu tarafında bir hata oluştu.' });
   }
 });
+
 
 // Sunucuyu ayağa kaldır
 app.listen(PORT, () => {
