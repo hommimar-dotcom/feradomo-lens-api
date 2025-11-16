@@ -40,13 +40,14 @@ app.post('/lens', upload.single('image'), async (req, res) => {
     if (!req.file) {
       return res
         .status(400)
-        .json({ error: 'Bir sahne (fotoğraf) yüklemen gerekiyor.' });
+        .json({ error: 'no_image', message: 'Bir sahne (fotoğraf) yüklemen gerekiyor.' });
     }
 
     if (!OPENAI_API_KEY) {
       console.error('OPENAI_API_KEY tanımlı değil!');
       return res.status(500).json({
-        error: 'OPENAI_API_KEY eksik. Render ortam değişkenlerini kontrol et.'
+        error: 'no_api_key',
+        message: 'OPENAI_API_KEY eksik. Render ortam değişkenlerini kontrol et.'
       });
     }
 
@@ -84,6 +85,12 @@ Rules:
     const formData = new FormData();
     formData.append('model', 'gpt-image-1');
     formData.append('prompt', prompt);
+    // Çıktıyı base64 olarak almak için:
+    formData.append('response_format', 'b64_json');
+    // Yatay dikey için yüksek kaliteli bir ölçü – istersen 1024x1024 yaparız
+    formData.append('size', '1536x1024');
+    formData.append('quality', 'high');
+    formData.append('n', '1');
 
     // Orijinal sahne fotoğrafını "image" alanına ekliyoruz
     formData.append('image', req.file.buffer, {
@@ -102,30 +109,46 @@ Rules:
       body: formData
     });
 
+    const rawText = await openaiResponse.text();
+    let parsed = null;
+    try {
+      parsed = JSON.parse(rawText);
+    } catch (e) {
+      // bazen text gelebilir; sorun değil
+    }
+
+    console.log('🔎 OpenAI raw cevap status:', openaiResponse.status);
+
     if (!openaiResponse.ok) {
-      const errorText = await openaiResponse.text();
-      console.error('❌ OpenAI hata:', openaiResponse.status, errorText);
-      return res.status(500).json({
+      // OpenAI'nin kendi hata mesajını ayıklayalım
+      let apiMessage = 'OpenAI tarafında bir hata oluştu.';
+      if (parsed && parsed.error && parsed.error.message) {
+        apiMessage = parsed.error.message;
+      }
+
+      console.error('❌ OpenAI hata:', openaiResponse.status, rawText);
+
+      return res.status(openaiResponse.status).json({
         error: 'openai_error',
-        status: openaiResponse.status,
-        detail: errorText,
-        message: 'Görsel sahnelenirken OpenAI tarafında bir hata oluştu.'
+        message: apiMessage,   // Shopify'da göreceğin satır BU olacak
+        detail: rawText,
+        status: openaiResponse.status
       });
     }
 
-    const json = await openaiResponse.json();
+    // Başarılı cevap
+    const json = parsed || {};
     const b64 = json?.data?.[0]?.b64_json;
 
     if (!b64) {
       console.error('❌ OpenAI cevabında b64_json bulunamadı:', json);
       return res.status(500).json({
         error: 'no_image_in_response',
-        raw: json,
-        message: 'OpenAI cevap döndü ama içinde görsel bulunamadı.'
+        message: 'OpenAI cevap döndü ama içinde görsel bulunamadı.',
+        detail: rawText
       });
     }
 
-    // Frontend şu anda base64 + mime bekliyor; mime'ı sabit png verdik
     const mime = 'image/png';
 
     console.log('✅ OpenAI sahneleme tamam, sonuç gönderiliyor.');
