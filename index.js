@@ -1,15 +1,11 @@
 const express = require('express');
 const multer = require('multer');
-const FormData = require('form-data');
-
-// node-fetch'i dinamik import ile kullan
-const fetch = (...args) =>
-  import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
 const app = express();
 const upload = multer();
 
 const PORT = process.env.PORT || 3000;
+// İleride OpenAI bağlayınca kullanacağız
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 
 // CORS – şimdilik her yerden istek gelsin (Shopify preview vs. için)
@@ -29,7 +25,7 @@ app.get('/', (req, res) => {
 });
 
 // Ana endpoint: /lens
-app.post('/lens', upload.single('scene'), async (req, res) => {
+app.post('/lens', upload.single('image'), async (req, res) => {
   try {
     // Dosya yoksa hata
     if (!req.file) {
@@ -42,9 +38,7 @@ app.post('/lens', upload.single('scene'), async (req, res) => {
     const base64 = req.file.buffer.toString('base64');
     const mime = req.file.mimetype || 'image/jpeg';
 
-    // Şimdilik DEMO:
-    // - image: base64 string
-    // - mime: içerik tipi (jpeg/png vs.)
+    // Şimdilik DEMO: yüklediğin fotoğrafı geri döndürüyoruz
     return res.json({
       ok: true,
       image: base64,
@@ -57,7 +51,6 @@ app.post('/lens', upload.single('scene'), async (req, res) => {
     res.status(500).json({ error: 'Sunucu tarafında bir hata oluştu.' });
   }
 });
-
 
 // Sunucuyu ayağa kaldır
 app.listen(PORT, () => {
