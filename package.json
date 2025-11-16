@@ -1,0 +1,14 @@
+{
+  "name": "feradomo-lens-api",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "commonjs",
+  "dependencies": {
+    "express": "^4.19.0",
+    "multer": "^1.4.5-lts.1",
+    "form-data": "^4.0.0"
+  },
+  "scripts": {
+    "start": "node index.js"
+  }
+}
