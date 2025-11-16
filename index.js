@@ -2,87 +2,68 @@ const express = require('express');
 const multer = require('multer');
 const FormData = require('form-data');
 
-// node-fetch'i dinamik import ile kullanıyoruz
+// node-fetch'i dinamik import ile kullan
 const fetch = (...args) =>
   import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
-const upload = multer();
 const app = express();
+const upload = multer();
 
 const PORT = process.env.PORT || 3000;
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-}
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 
-app.get('/', (req, res) => {
-  res.send('Feradomo Lens API çalışıyor.');
+// CORS – şimdilik her yerden istek gelsin (Shopify preview vs. için)
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  next();
 });
 
-app.post('/lens', upload.single('image'), async (req, res) => {
+// Basit sağlık kontrolü
+app.get('/', (req, res) => {
+  res.send('Feradomo Lens API çalışıyor ✅');
+});
+
+// Ana endpoint: /lens
+app.post('/lens', upload.single('scene'), async (req, res) => {
   try {
-    if (!OPENAI_API_KEY) {
-      return res.status(500).json({ error: 'OPENAI_API_KEY tanımlı değil.' });
-    }
-
+    // Dosya gelmemişse
     if (!req.file) {
-      return res.status(400).json({ error: 'image alanı boş.' });
+      return res
+        .status(400)
+        .json({ error: 'Bir sahne (fotoğraf) yüklemen gerekiyor.' });
     }
 
-    const model = req.body.model || 'ceres-spatiosa';
+    // Şimdilik DEMO: Gerçek AI yerine sabit bir demo görüntü dönüyoruz.
+    // (Önce backend tamamen stabil olsun, sonra OpenAI entegrasyonunu ekleriz.)
+    const demoUrl =
+      'https://images.pexels.com/photos/37347/office-freelancer-computer-business-37347.jpeg?auto=compress&cs=tinysrgb&w=1600';
 
-    let modelDescription = 'microcement coffee table';
-    if (model === 'castrum') {
-      modelDescription = 'Feradomo Castrum microcement console table';
-    } else if (model === 'ceres-spatiosa') {
-      modelDescription = 'Feradomo Ceres Spatiosa microcement coffee table';
-    } else if (model === 'custom') {
-      modelDescription = 'custom Feradomo microcement design table';
-    }
-
-    const prompt = `
-      Ultra realistic photo of the SAME interior space, with a ${modelDescription}
-      placed in the correct perspective on the floor, matching the existing light and shadows.
-      Keep the original walls, floor, furniture and colors. Only add the table in a natural way.
-      High-end interior photography, 4k, no text, no extra objects.
-    `;
-
-    const form = new FormData();
-    form.append('model', 'gpt-image-1');
-    form.append('prompt', prompt);
-    form.append('image', req.file.buffer, {
-      filename: req.file.originalname || 'room.png'
-    });
-    form.append('size', '1024x1024');
-    form.append('response_format', 'b64_json');
-
-    const response = await fetch('https://api.openai.com/v1/images/edits', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-        ...form.getHeaders()
-      },
-      body: form
+    return res.json({
+      ok: true,
+      // front-end hangi ismi beklerse ikisini de verelim
+      imageUrl: demoUrl,
+      previewUrl: demoUrl,
+      message:
+        'Şu an demo modundayız, backend sorunsuz çalışıyor. Sonraki adım: gerçek sahneleme AI entegrasyonu. 💫'
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('OpenAI hata:', errorText);
-      return res.status(500).json({ error: 'OpenAI isteği başarısız.' });
-    }
-
-    const data = await response.json();
-
-    const b64 = data?.data?.[0]?.b64_json;
-    if (!b64) {
-      return res.status(500).json({ error: 'OpenAI yanıtı beklenen formatta değil.' });
-    }
-
-    res.json({ image: b64 });
+    /**
+     * NOT:
+     * Buraya daha sonra gerçek OpenAI / başka AI servisi çağrısını ekleyeceğiz.
+     * OPENAI_API_KEY'i environment variable olarak Render tarafına zaten koymuştun.
+     */
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Sunucu hatası.' });
+    console.error('Lens hata:', err);
+    res.status(500).json({ error: 'Sunucu tarafında bir hata oluştu.' });
   }
 });
 
+// Sunucuyu ayağa kaldır
 app.listen(PORT, () => {
-  console.log(`Feradomo Lens API port ${PORT} üzerinde çalışıyor.`);
+  console.log(`Feradomo Lens API port ${PORT} üzerinde çalışıyor`);
 });
