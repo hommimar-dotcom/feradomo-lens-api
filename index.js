@@ -2,14 +2,15 @@ const express = require('express');
 const multer = require('multer');
 const FormData = require('form-data');
 
+// node-fetch'i dinamik import ile kullanıyoruz
+const fetch = (...args) =>
+  import('node-fetch').then(({ default: fetch }) => fetch(...args));
+
 const upload = multer();
 const app = express();
 
 const PORT = process.env.PORT || 3000;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-
-if (!OPENAI_API_KEY) {
-  console.warn('⚠️ OPENAI_API_KEY environment variable is not set.');
 }
 
 app.get('/', (req, res) => {
