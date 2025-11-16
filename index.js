@@ -1,8 +1,9 @@
+// index.js
 const express = require('express');
 const multer = require('multer');
 const FormData = require('form-data');
 
-// node-fetch v3 ESM olduğu için dinamik import ile kullanıyoruz
+// node-fetch v3 ESM olduğu için CJS içinde dinamik import ile kullanıyoruz
 const fetch = (...args) =>
   import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
@@ -12,9 +13,13 @@ const upload = multer();
 const PORT = process.env.PORT || 3000;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 
+if (!OPENAI_API_KEY) {
+  console.warn('⚠️ OPENAI_API_KEY tanımlı değil. Render ortam değişkenini kontrol et.');
+}
+
 // CORS – Shopify için açık
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Origin', '*'); // istersen buraya feradomo.com yazabilirsin
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') {
@@ -86,7 +91,8 @@ Rules:
       contentType: req.file.mimetype || 'image/jpeg'
     });
 
-    // OpenAI'ye istek
+    console.log('📤 OpenAI images/edits isteği gönderiliyor...');
+
     const openaiResponse = await fetch('https://api.openai.com/v1/images/edits', {
       method: 'POST',
       headers: {
@@ -98,11 +104,12 @@ Rules:
 
     if (!openaiResponse.ok) {
       const errorText = await openaiResponse.text();
-      console.error('OpenAI hata:', openaiResponse.status, errorText);
+      console.error('❌ OpenAI hata:', openaiResponse.status, errorText);
       return res.status(500).json({
         error: 'openai_error',
         status: openaiResponse.status,
-        detail: errorText
+        detail: errorText,
+        message: 'Görsel sahnelenirken OpenAI tarafında bir hata oluştu.'
       });
     }
 
@@ -110,15 +117,18 @@ Rules:
     const b64 = json?.data?.[0]?.b64_json;
 
     if (!b64) {
-      console.error('OpenAI cevabında b64_json bulunamadı:', json);
+      console.error('❌ OpenAI cevabında b64_json bulunamadı:', json);
       return res.status(500).json({
         error: 'no_image_in_response',
-        raw: json
+        raw: json,
+        message: 'OpenAI cevap döndü ama içinde görsel bulunamadı.'
       });
     }
 
     // Frontend şu anda base64 + mime bekliyor; mime'ı sabit png verdik
     const mime = 'image/png';
+
+    console.log('✅ OpenAI sahneleme tamam, sonuç gönderiliyor.');
 
     return res.json({
       ok: true,
@@ -127,8 +137,11 @@ Rules:
       message: 'Sehpa mekânının içine yerleştirildi. Sessiz lüks sahnen hazır. ✨'
     });
   } catch (err) {
-    console.error('Lens hata:', err);
-    res.status(500).json({ error: 'Sunucu tarafında bir hata oluştu.' });
+    console.error('❌ Lens hata:', err);
+    res.status(500).json({
+      error: 'server_error',
+      message: 'Sunucu tarafında beklenmedik bir hata oluştu.'
+    });
   }
 });
 
