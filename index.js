@@ -8,7 +8,9 @@ const fetch = (...args) =>
   import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
 const app = express();
-const upload = multer();
+
+// Dosyaları RAM'de tutalım (OpenAI'ye buffer olarak göndereceğiz)
+const upload = multer({ storage: multer.memoryStorage() });
 
 const PORT = process.env.PORT || 3000;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
@@ -34,14 +36,25 @@ app.get('/', (req, res) => {
 });
 
 // Ana endpoint: /lens
-app.post('/lens', upload.single('image'), async (req, res) => {
+// ÖNEMLİ: upload.single yerine upload.any kullanıyoruz ki field adı ne olursa olsun "Unexpected field" hatası atmasın.
+app.post('/lens', upload.any(), async (req, res) => {
   try {
-    // Dosya yoksa hata
-    if (!req.file) {
+    // Gelen dosyayı bul: önce fieldname'i "image" olanı dene, yoksa ilk dosyayı al
+    const file =
+      (req.files && req.files.find((f) => f.fieldname === 'image')) ||
+      (req.files && req.files[0]) ||
+      req.file;
+
+    if (!file) {
+      console.error('❌ Dosya bulunamadı. Gelen fields:', req.files);
       return res
         .status(400)
         .json({ error: 'no_image', message: 'Bir sahne (fotoğraf) yüklemen gerekiyor.' });
     }
+
+    const fileBuffer = file.buffer;
+    const originalName = file.originalname || 'scene.jpg';
+    const mimeType = file.mimetype || 'image/jpeg';
 
     if (!OPENAI_API_KEY) {
       console.error('OPENAI_API_KEY tanımlı değil!');
@@ -51,7 +64,7 @@ app.post('/lens', upload.single('image'), async (req, res) => {
       });
     }
 
-    // Shopify tarafında gönderdiğin model değeri (ceres-spatiosa / castrum / custom)
+    // Shopify tarafında gönderdiğin model değeri (regina / ceres-spatiosa / castrum / custom vs.)
     const selectedModel = req.body.model || 'ceres-spatiosa';
 
     // Prompt içinde kullanmak için açıklayıcı isimler
@@ -62,6 +75,9 @@ app.post('/lens', upload.single('image'), async (req, res) => {
     } else if (selectedModel === 'castrum') {
       tableDescription =
         'Feradomo Castrum microcement console table, sculptural form, silent luxury style';
+    } else if (selectedModel === 'regina') {
+      tableDescription =
+        'Feradomo Regina microcement coffee table, soft organic form, silent luxury style';
     } else if (selectedModel === 'custom') {
       tableDescription =
         'a custom Feradomo microcement table designed for this space, silent luxury style';
@@ -82,21 +98,16 @@ Rules:
     `.trim();
 
     // OpenAI images/edits isteği için form-data hazırlığı
-        const formData = new FormData();
+    const formData = new FormData();
     formData.append('model', 'gpt-image-1');
     formData.append('prompt', prompt);
-
-    // gpt-image-1 zaten her zaman base64 döndürdüğü için response_format GÖNDERMİYORUZ.
-    // Bazı kombolarda 'quality' da hata verdiği için onu da sade bırakıyoruz.
-
     formData.append('size', '1536x1024'); // istersen 1024x1024 yapabilirsin
     formData.append('n', '1');
 
-
     // Orijinal sahne fotoğrafını "image" alanına ekliyoruz
-    formData.append('image', req.file.buffer, {
-      filename: req.file.originalname || 'scene.jpg',
-      contentType: req.file.mimetype || 'image/jpeg'
+    formData.append('image', fileBuffer, {
+      filename: originalName,
+      contentType: mimeType
     });
 
     console.log('📤 OpenAI images/edits isteği gönderiliyor...');
@@ -131,7 +142,7 @@ Rules:
 
       return res.status(openaiResponse.status).json({
         error: 'openai_error',
-        message: apiMessage,   // Shopify'da göreceğin satır BU olacak
+        message: apiMessage, // Shopify'da göreceğin satır BU olacak
         detail: rawText,
         status: openaiResponse.status
       });
@@ -151,12 +162,13 @@ Rules:
     }
 
     const mime = 'image/png';
+    const dataUri = `data:${mime};base64,${b64}`;
 
     console.log('✅ OpenAI sahneleme tamam, sonuç gönderiliyor.');
 
     return res.json({
       ok: true,
-      image: b64,
+      image: dataUri, // direkt <img src="..."> olarak kullanılabilir
       mime,
       message: 'Sehpa mekânının içine yerleştirildi. Sessiz lüks sahnen hazır. ✨'
     });
