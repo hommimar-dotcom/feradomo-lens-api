@@ -2,6 +2,8 @@
 const express = require('express');
 const multer = require('multer');
 const FormData = require('form-data');
+const fs = require('fs');
+const path = require('path');
 
 // node-fetch v3 ESM olduğu için CJS içinde dinamik import ile kullanıyoruz
 const fetch = (...args) =>
@@ -22,7 +24,7 @@ if (!OPENAI_API_KEY) {
 // CORS – Shopify için açık
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*'); // istersen buraya feradomo.com yazabilirsin
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') {
     return res.sendStatus(204);
@@ -30,10 +32,106 @@ app.use((req, res, next) => {
   next();
 });
 
-// Basit sağlık kontrolü
-app.get('/', (req, res) => {
-  res.send('Feradomo Lens API çalışıyor ✅');
+// JSON body (el yazısı notları için base64 image alacağız)
+app.use(express.json({ limit: '5mb' }));
+
+// -----------------------------
+// Feradomo Kolektif Not Defteri
+// -----------------------------
+
+// Not görselleri ve mini "database" için yollar
+const NOTES_DIR = path.join(__dirname, 'public', 'feradomo-notes');
+const NOTES_DB = path.join(__dirname, 'feradomo-notes-db.json');
+
+// Klasör / dosya yoksa oluştur
+if (!fs.existsSync(NOTES_DIR)) {
+  fs.mkdirSync(NOTES_DIR, { recursive: true });
+}
+if (!fs.existsSync(NOTES_DB)) {
+  fs.writeFileSync(NOTES_DB, '[]', 'utf-8');
+}
+
+// Yardımcı fonksiyonlar
+function readNotes() {
+  try {
+    const raw = fs.readFileSync(NOTES_DB, 'utf-8');
+    return JSON.parse(raw);
+  } catch (_err) {
+    return [];
+  }
+}
+
+function writeNotes(notes) {
+  fs.writeFileSync(NOTES_DB, JSON.stringify(notes, null, 2), 'utf-8');
+}
+
+// Not görsellerini public olarak servis et
+app.use('/feradomo-notes', express.static(NOTES_DIR));
+
+// Notları getir
+app.get('/api/feradomo-not', (req, res) => {
+  try {
+    const notes = readNotes();
+    res.json(notes);
+  } catch (err) {
+    console.error('GET /api/feradomo-not error', err);
+    res.status(500).json({ error: 'server_error' });
+  }
 });
+
+// Yeni not kaydet
+app.post('/api/feradomo-not', (req, res) => {
+  try {
+    const { imageData, name, city, message } = req.body || {};
+
+    if (!imageData || typeof imageData !== 'string') {
+      return res
+        .status(400)
+        .json({ error: 'imageData_missing', message: 'imageData (base64 PNG) eksik.' });
+    }
+
+    // data URL'den base64 kısmını ayıkla
+    const base64Data = imageData.replace(/^data:image\/png;base64,/, '');
+    const id = Date.now().toString();
+    const filename = `note-${id}.png`;
+    const filepath = path.join(NOTES_DIR, filename);
+
+    fs.writeFileSync(filepath, base64Data, 'base64');
+
+    const publicUrl = `/feradomo-notes/${filename}`;
+
+    const notes = readNotes();
+    const note = {
+      id,
+      imageUrl: publicUrl,
+      name: (name || 'İsimsiz').slice(0, 50),
+      city: (city || '').slice(0, 50),
+      message: (message || '').slice(0, 200),
+      createdAt: new Date().toISOString()
+    };
+
+    // En başa ekle, maksimum 100 kayıt tut
+    notes.unshift(note);
+    const trimmed = notes.slice(0, 100);
+    writeNotes(trimmed);
+
+    res.json({ ok: true, note });
+  } catch (err) {
+    console.error('POST /api/feradomo-not error', err);
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
+// -----------------------------
+// Sağlık kontrolü
+// -----------------------------
+app.get('/', (req, res) => {
+  res.send('Feradomo Lens & Kolektif API çalışıyor ✅');
+});
+
+// -----------------------------
+// Feradomo Lens endpoint'i
+// -----------------------------
 
 // Ana endpoint: /lens
 // ÖNEMLİ: upload.single yerine upload.any kullanıyoruz ki field adı ne olursa olsun "Unexpected field" hatası atmasın.
@@ -183,5 +281,5 @@ Rules:
 
 // Sunucuyu ayağa kaldır
 app.listen(PORT, () => {
-  console.log(`Feradomo Lens API port ${PORT} üzerinde çalışıyor`);
+  console.log(`Feradomo Lens & Kolektif API port ${PORT} üzerinde çalışıyor`);
 });
