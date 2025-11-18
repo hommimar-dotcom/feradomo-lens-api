@@ -32,7 +32,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// JSON body (el yazısı notları için base64 image alacağız)
+// JSON body (gerekirse başka endpointler için)
 app.use(express.json({ limit: '5mb' }));
 
 // -----------------------------
@@ -68,7 +68,10 @@ function writeNotes(notes) {
 // Not görsellerini public olarak servis et
 app.use('/feradomo-notes', express.static(NOTES_DIR));
 
-// Notları getir
+/**
+ * Kolektif defter – notları getir
+ * (şimdilik tüm notları döndürüyoruz)
+ */
 app.get('/api/feradomo-not', (req, res) => {
   try {
     const notes = readNotes();
@@ -79,24 +82,54 @@ app.get('/api/feradomo-not', (req, res) => {
   }
 });
 
-// Yeni not kaydet
-app.post('/api/feradomo-not', (req, res) => {
+/**
+ * Kolektif defter – yeni not kaydet
+ *
+ * Beklenen istek:
+ *  - Content-Type: multipart/form-data
+ *  - Dosya field adı: "note"  (PNG / JPG vs.)
+ *  - Text field: "fullName"  (İsim Soyisim, zorunlu)
+ *  - Text field: "productCode" (Feradomo ürün kodu, zorunlu)
+ */
+app.post('/api/feradomo-not', upload.single('note'), (req, res) => {
   try {
-    const { imageData, name, city, message } = req.body || {};
+    const file = req.file;
 
-    if (!imageData || typeof imageData !== 'string') {
+    if (!file) {
       return res
         .status(400)
-        .json({ error: 'imageData_missing', message: 'imageData (base64 PNG) eksik.' });
+        .json({ error: 'no_file', message: 'El yazısı not görseli (note) yüklemen gerekiyor.' });
     }
 
-    // data URL'den base64 kısmını ayıkla
-    const base64Data = imageData.replace(/^data:image\/png;base64,/, '');
+    const fullName = (req.body.fullName || '').trim();
+    const productCode = (req.body.productCode || '').trim();
+
+    if (!fullName || !productCode) {
+      return res.status(400).json({
+        error: 'validation',
+        message: 'İsim Soyisim ve Feradomo ürün kodu zorunludur.'
+      });
+    }
+
+    const fileBuffer = file.buffer;
+    const originalName = file.originalname || 'note.png';
+    const mimeType = file.mimetype || 'image/png';
+
+    // Dosya uzantısını belirle
+    let ext = path.extname(originalName || '').toLowerCase();
+    if (!ext) {
+      if (mimeType === 'image/png') ext = '.png';
+      else if (mimeType === 'image/webp') ext = '.webp';
+      else if (mimeType === 'image/jpeg' || mimeType === 'image/jpg') ext = '.jpg';
+      else ext = '.png';
+    }
+
     const id = Date.now().toString();
-    const filename = `note-${id}.png`;
+    const filename = `note-${id}${ext}`;
     const filepath = path.join(NOTES_DIR, filename);
 
-    fs.writeFileSync(filepath, base64Data, 'base64');
+    // Görseli OLDUĞU GİBİ kaydet (arka planı sen önceden temizliyorsun)
+    fs.writeFileSync(filepath, fileBuffer);
 
     const publicUrl = `/feradomo-notes/${filename}`;
 
@@ -104,10 +137,10 @@ app.post('/api/feradomo-not', (req, res) => {
     const note = {
       id,
       imageUrl: publicUrl,
-      name: (name || 'İsimsiz').slice(0, 50),
-      city: (city || '').slice(0, 50),
-      message: (message || '').slice(0, 200),
+      fullName: fullName.slice(0, 80),
+      productCode: productCode.slice(0, 80),
       createdAt: new Date().toISOString()
+      // istersen ileride approved: false vs. ekleyip moderasyon ekleriz
     };
 
     // En başa ekle, maksimum 100 kayıt tut
@@ -115,7 +148,11 @@ app.post('/api/feradomo-not', (req, res) => {
     const trimmed = notes.slice(0, 100);
     writeNotes(trimmed);
 
-    res.json({ ok: true, note });
+    res.json({
+      ok: true,
+      note,
+      message: 'Notun kaydedildi. Kolektif duvarına eklendi.'
+    });
   } catch (err) {
     console.error('POST /api/feradomo-not error', err);
     res.status(500).json({ error: 'server_error' });
