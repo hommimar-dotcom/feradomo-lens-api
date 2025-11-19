@@ -70,14 +70,21 @@ app.use('/feradomo-notes', express.static(NOTES_DIR));
 // Tüm notları getir
 app.get('/api/feradomo-not', (req, res) => {
   try {
-    const notes = readNotes();
-    console.log(`📖 GET /api/feradomo-not -> ${notes.length} kayıt`);
+    const { approvedOnly } = req.query;
+    let notes = readNotes();
+
+    if (approvedOnly === '1') {
+      notes = notes.filter((n) => n && n.approved);
+    }
+
+    console.log(`📖 GET /api/feradomo-not (approvedOnly=${approvedOnly}) -> ${notes.length} kayıt`);
     res.json(notes);
   } catch (err) {
     console.error('GET /api/feradomo-not error', err);
     res.status(500).json({ error: 'server_error' });
   }
 });
+
 
 // Yeni not kaydet – FormData ile "note" dosyası + fullName + productCode
 app.post('/api/feradomo-not', upload.single('note'), (req, res) => {
