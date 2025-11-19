@@ -23,7 +23,7 @@ if (!OPENAI_API_KEY) {
 
 // CORS – Shopify için açık
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*'); // istersen buraya feradomo.com yazabilirsin
+  res.setHeader('Access-Control-Allow-Origin', '*'); 
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') {
@@ -32,7 +32,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// JSON body (ileride başka şeyler için lazım olabilir diye dursun)
+// JSON body
 app.use(express.json({ limit: '5mb' }));
 
 // ---------------------------------------------------
@@ -67,7 +67,7 @@ function writeNotes(notes) {
 // Yüklenen not görsellerini public olarak servis et
 app.use('/feradomo-notes', express.static(NOTES_DIR));
 
-// Tüm notları getir (ileride admin panel burayı kullanacak)
+// Tüm notları getir
 app.get('/api/feradomo-not', (req, res) => {
   try {
     const notes = readNotes();
@@ -112,6 +112,7 @@ app.post('/api/feradomo-not', upload.single('note'), (req, res) => {
     const filename = `note-${id}${ext}`;
     const filepath = path.join(NOTES_DIR, filename);
 
+    // Buffer'ı diske yaz
     fs.writeFileSync(filepath, file.buffer);
 
     const publicUrl = `/feradomo-notes/${filename}`;
@@ -124,39 +125,6 @@ app.post('/api/feradomo-not', upload.single('note'), (req, res) => {
       productCode: productCode.slice(0, 80),
       createdAt: new Date().toISOString(),
       approved: false
-    };
-
-    notes.unshift(note);
-    writeNotes(notes.slice(0, 200));
-
-    console.log('✅ Not kaydedildi:', note);
-
-    res.json({ ok: true, note });
-  } catch (err) {
-    console.error('POST /api/feradomo-not error', err);
-    res.status(500).json({ ok: false, error: 'server_error' });
-  }
-});
-
-
-    const id = Date.now().toString();
-    const ext = path.extname(file.originalname || '').toLowerCase() || '.png';
-    const filename = `note-${id}${ext}`;
-    const filepath = path.join(NOTES_DIR, filename);
-
-    // Buffer'ı direkt diske yaz
-    fs.writeFileSync(filepath, file.buffer);
-
-    const publicUrl = `/feradomo-notes/${filename}`;
-
-    const notes = readNotes();
-    const note = {
-      id,
-      imageUrl: publicUrl,
-      fullName: fullName.slice(0, 80),
-      productCode: productCode.slice(0, 80),
-      createdAt: new Date().toISOString(),
-      approved: false // ileride admin panelden onaylayacağız
     };
 
     // En başa ekle, maksimum 200 kayıt tut
@@ -187,8 +155,6 @@ app.get('/', (req, res) => {
 // 3) FERADOMO LENS – SEHPA YERLEŞTİRME
 // ------------------------------------
 
-// Ana endpoint: /lens
-// upload.any: Shopify'dan field name değişse bile sorun yaşama
 app.post('/lens', upload.any(), async (req, res) => {
   try {
     const file =
@@ -215,7 +181,7 @@ app.post('/lens', upload.any(), async (req, res) => {
       });
     }
 
-    // Shopify tarafında gönderdiğin model değeri (regina / ceres-spatiosa / castrum / custom vs.)
+    // Shopify tarafında gönderdiğin model değeri 
     const selectedModel = req.body.model || 'ceres-spatiosa';
 
     let tableDescription = 'Feradomo microcement coffee table';
