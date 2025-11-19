@@ -11,19 +11,19 @@ const fetch = (...args) =>
 
 const app = express();
 
-// Dosyaları RAM'de tutalım (OpenAI'ye buffer olarak göndereceğiz)
+// Dosyaları RAM'de tutalım (hem Lens hem Not için)
 const upload = multer({ storage: multer.memoryStorage() });
 
 const PORT = process.env.PORT || 3000;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 
 if (!OPENAI_API_KEY) {
-  console.warn('⚠️ OPENAI_API_KEY tanımlı değil. Render ortam değişkenini kontrol et.');
+  console.warn('⚠️ OPENAI_API_KEY tanımlı değil. Lens endpointi çalışırken buna ihtiyacımız var.');
 }
 
 // CORS – Shopify için açık
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*'); // istersen buraya feradomo.com yazabilirsin
+  res.setHeader('Access-Control-Allow-Origin', '*'); // istersem buraya feradomo.com yazabilirsin
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') {
@@ -32,12 +32,12 @@ app.use((req, res, next) => {
   next();
 });
 
-// JSON body (gerekirse başka endpointler için)
+// JSON body (ileride lazım olabilir diye dursun)
 app.use(express.json({ limit: '5mb' }));
 
-// -----------------------------
-// Feradomo Kolektif Not Defteri
-// -----------------------------
+// ---------------------------------------------------
+// 1) FERADOMO KOLEKTİF DEFTERİ – EL YAZISI NOT YÜKLEME
+// ---------------------------------------------------
 
 // Not görselleri ve mini "database" için yollar
 const NOTES_DIR = path.join(__dirname, 'public', 'feradomo-notes');
@@ -51,7 +51,6 @@ if (!fs.existsSync(NOTES_DB)) {
   fs.writeFileSync(NOTES_DB, '[]', 'utf-8');
 }
 
-// Yardımcı fonksiyonlar
 function readNotes() {
   try {
     const raw = fs.readFileSync(NOTES_DB, 'utf-8');
@@ -65,13 +64,10 @@ function writeNotes(notes) {
   fs.writeFileSync(NOTES_DB, JSON.stringify(notes, null, 2), 'utf-8');
 }
 
-// Not görsellerini public olarak servis et
+// Yüklenen not görsellerini public olarak servis et
 app.use('/feradomo-notes', express.static(NOTES_DIR));
 
-/**
- * Kolektif defter – notları getir
- * (şimdilik tüm notları döndürüyoruz)
- */
+// Tüm notları getir (ileride admin panel burayı kullanacak)
 app.get('/api/feradomo-not', (req, res) => {
   try {
     const notes = readNotes();
@@ -82,54 +78,35 @@ app.get('/api/feradomo-not', (req, res) => {
   }
 });
 
-/**
- * Kolektif defter – yeni not kaydet
- *
- * Beklenen istek:
- *  - Content-Type: multipart/form-data
- *  - Dosya field adı: "note"  (PNG / JPG vs.)
- *  - Text field: "fullName"  (İsim Soyisim, zorunlu)
- *  - Text field: "productCode" (Feradomo ürün kodu, zorunlu)
- */
+// Yeni not kaydet – FormData ile "note" dosyası + fullName + productCode
 app.post('/api/feradomo-not', upload.single('note'), (req, res) => {
   try {
     const file = req.file;
+    const { fullName, productCode } = req.body || {};
 
     if (!file) {
-      return res
-        .status(400)
-        .json({ error: 'no_file', message: 'El yazısı not görseli (note) yüklemen gerekiyor.' });
-    }
-
-    const fullName = (req.body.fullName || '').trim();
-    const productCode = (req.body.productCode || '').trim();
-
-    if (!fullName || !productCode) {
       return res.status(400).json({
-        error: 'validation',
-        message: 'İsim Soyisim ve Feradomo ürün kodu zorunludur.'
+        ok: false,
+        error: 'file_missing',
+        message: 'El yazısı not fotoğrafı zorunludur.'
       });
     }
 
-    const fileBuffer = file.buffer;
-    const originalName = file.originalname || 'note.png';
-    const mimeType = file.mimetype || 'image/png';
-
-    // Dosya uzantısını belirle
-    let ext = path.extname(originalName || '').toLowerCase();
-    if (!ext) {
-      if (mimeType === 'image/png') ext = '.png';
-      else if (mimeType === 'image/webp') ext = '.webp';
-      else if (mimeType === 'image/jpeg' || mimeType === 'image/jpg') ext = '.jpg';
-      else ext = '.png';
+    if (!fullName || !productCode) {
+      return res.status(400).json({
+        ok: false,
+        error: 'fields_missing',
+        message: 'İsim Soyisim ve ürün kodu zorunludur.'
+      });
     }
 
     const id = Date.now().toString();
+    const ext = path.extname(file.originalname || '').toLowerCase() || '.png';
     const filename = `note-${id}${ext}`;
     const filepath = path.join(NOTES_DIR, filename);
 
-    // Görseli OLDUĞU GİBİ kaydet (arka planı sen önceden temizliyorsun)
-    fs.writeFileSync(filepath, fileBuffer);
+    // Buffer'ı direkt diske yaz
+    fs.writeFileSync(filepath, file.buffer);
 
     const publicUrl = `/feradomo-notes/${filename}`;
 
@@ -139,39 +116,34 @@ app.post('/api/feradomo-not', upload.single('note'), (req, res) => {
       imageUrl: publicUrl,
       fullName: fullName.slice(0, 80),
       productCode: productCode.slice(0, 80),
-      createdAt: new Date().toISOString()
-      // istersen ileride approved: false vs. ekleyip moderasyon ekleriz
+      createdAt: new Date().toISOString(),
+      approved: false // ileride admin panelden onaylayacağız
     };
 
-    // En başa ekle, maksimum 100 kayıt tut
+    // En başa ekle, maksimum 200 kayıt tut
     notes.unshift(note);
-    const trimmed = notes.slice(0, 100);
-    writeNotes(trimmed);
+    writeNotes(notes.slice(0, 200));
 
-    res.json({
-      ok: true,
-      note,
-      message: 'Notun kaydedildi. Kolektif duvarına eklendi.'
-    });
+    res.json({ ok: true, note });
   } catch (err) {
     console.error('POST /api/feradomo-not error', err);
-    res.status(500).json({ error: 'server_error' });
+    res.status(500).json({ ok: false, error: 'server_error' });
   }
 });
 
-// -----------------------------
-// Sağlık kontrolü
-// -----------------------------
+// ------------------------------------
+// 2) SAĞLIK KONTROLÜ (root endpoint)
+// ------------------------------------
 app.get('/', (req, res) => {
   res.send('Feradomo Lens & Kolektif API çalışıyor ✅');
 });
 
-// -----------------------------
-// Feradomo Lens endpoint'i
-// -----------------------------
+// ------------------------------------
+// 3) FERADOMO LENS – SEHPA YERLEŞTİRME
+// ------------------------------------
 
 // Ana endpoint: /lens
-// ÖNEMLİ: upload.single yerine upload.any kullanıyoruz ki field adı ne olursa olsun "Unexpected field" hatası atmasın.
+// upload.any: Shopify'dan field name değişse bile sorun yaşama
 app.post('/lens', upload.any(), async (req, res) => {
   try {
     // Gelen dosyayı bul: önce fieldname'i "image" olanı dene, yoksa ilk dosyayı al
@@ -218,7 +190,6 @@ app.post('/lens', upload.any(), async (req, res) => {
         'a custom Feradomo microcement table designed for this space, silent luxury style';
     }
 
-    // OpenAI için prompt
     const prompt = `
 You are a high-end interior renderer for a luxury microcement furniture brand called Feradomo.
 
@@ -232,14 +203,12 @@ Rules:
 - Output a single ultra-realistic photo of the same room with the Feradomo table added.
     `.trim();
 
-    // OpenAI images/edits isteği için form-data hazırlığı
     const formData = new FormData();
     formData.append('model', 'gpt-image-1');
     formData.append('prompt', prompt);
-    formData.append('size', '1536x1024'); // istersen 1024x1024 yapabilirsin
+    formData.append('size', '1536x1024');
     formData.append('n', '1');
 
-    // Orijinal sahne fotoğrafını "image" alanına ekliyoruz
     formData.append('image', fileBuffer, {
       filename: originalName,
       contentType: mimeType
@@ -260,14 +229,13 @@ Rules:
     let parsed = null;
     try {
       parsed = JSON.parse(rawText);
-    } catch (e) {
+    } catch (_e) {
       // bazen text gelebilir; sorun değil
     }
 
     console.log('🔎 OpenAI raw cevap status:', openaiResponse.status);
 
     if (!openaiResponse.ok) {
-      // OpenAI'nin kendi hata mesajını ayıklayalım
       let apiMessage = 'OpenAI tarafında bir hata oluştu.';
       if (parsed && parsed.error && parsed.error.message) {
         apiMessage = parsed.error.message;
@@ -277,13 +245,12 @@ Rules:
 
       return res.status(openaiResponse.status).json({
         error: 'openai_error',
-        message: apiMessage, // Shopify'da göreceğin satır BU olacak
+        message: apiMessage,
         detail: rawText,
         status: openaiResponse.status
       });
     }
 
-    // Başarılı cevap
     const json = parsed || {};
     const b64 = json?.data?.[0]?.b64_json;
 
@@ -303,7 +270,7 @@ Rules:
 
     return res.json({
       ok: true,
-      image: dataUri, // direkt <img src="..."> olarak kullanılabilir
+      image: dataUri,
       mime,
       message: 'Sehpa mekânının içine yerleştirildi. Sessiz lüks sahnen hazır. ✨'
     });
