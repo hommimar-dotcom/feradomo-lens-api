@@ -82,10 +82,15 @@ app.get('/api/feradomo-not', (req, res) => {
 // Yeni not kaydet – FormData ile "note" dosyası + fullName + productCode
 app.post('/api/feradomo-not', upload.single('note'), (req, res) => {
   try {
+    console.log('➡️  POST /api/feradomo-not alındı');
+    console.log('   body:', req.body);
+    console.log('   file:', req.file && req.file.originalname);
+
     const file = req.file;
     const { fullName, productCode } = req.body || {};
 
     if (!file) {
+      console.warn('⚠️  Dosya yok');
       return res.status(400).json({
         ok: false,
         error: 'file_missing',
@@ -94,12 +99,45 @@ app.post('/api/feradomo-not', upload.single('note'), (req, res) => {
     }
 
     if (!fullName || !productCode) {
+      console.warn('⚠️  Zorunlu alanlar eksik', { fullName, productCode });
       return res.status(400).json({
         ok: false,
         error: 'fields_missing',
         message: 'İsim Soyisim ve ürün kodu zorunludur.'
       });
     }
+
+    const id = Date.now().toString();
+    const ext = path.extname(file.originalname || '').toLowerCase() || '.png';
+    const filename = `note-${id}${ext}`;
+    const filepath = path.join(NOTES_DIR, filename);
+
+    fs.writeFileSync(filepath, file.buffer);
+
+    const publicUrl = `/feradomo-notes/${filename}`;
+
+    const notes = readNotes();
+    const note = {
+      id,
+      imageUrl: publicUrl,
+      fullName: fullName.slice(0, 80),
+      productCode: productCode.slice(0, 80),
+      createdAt: new Date().toISOString(),
+      approved: false
+    };
+
+    notes.unshift(note);
+    writeNotes(notes.slice(0, 200));
+
+    console.log('✅ Not kaydedildi:', note);
+
+    res.json({ ok: true, note });
+  } catch (err) {
+    console.error('POST /api/feradomo-not error', err);
+    res.status(500).json({ ok: false, error: 'server_error' });
+  }
+});
+
 
     const id = Date.now().toString();
     const ext = path.extname(file.originalname || '').toLowerCase() || '.png';
