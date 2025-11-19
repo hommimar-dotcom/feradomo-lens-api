@@ -67,6 +67,17 @@ function writeNotes(notes) {
   fs.writeFileSync(NOTES_DB, JSON.stringify(notes, null, 2), 'utf-8');
 }
 
+// Basit HTML escape (admin panelde isim/kod yazarken)
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 // Yüklenen not görsellerini public olarak servis et
 app.use('/feradomo-notes', express.static(NOTES_DIR));
 
@@ -160,7 +171,7 @@ app.post('/api/feradomo-not', upload.single('note'), (req, res) => {
 });
 
 // Belirli bir notu onaylamak için basit admin endpoint
-// Kullanım: GET /api/feradomo-not-approve?id=1763517737447&token=FERADOMO_ADMIN_TOKEN
+// Kullanım: GET /api/feradomo-not-approve?id=...&token=FERADOMO_ADMIN_TOKEN
 app.get('/api/feradomo-not-approve', (req, res) => {
   try {
     if (!ADMIN_TOKEN) {
@@ -213,6 +224,316 @@ app.get('/api/feradomo-not-approve', (req, res) => {
   } catch (err) {
     console.error('GET /api/feradomo-not-approve error', err);
     res.status(500).json({ ok: false, error: 'server_error' });
+  }
+});
+
+// ---------------------------------------------------
+// 1.b) BASİT ADMIN PANEL – NOTLARI LİSTELE / ONAYLA
+// ---------------------------------------------------
+// URL: /admin/feradomo-not?token=FERADOMO_ADMIN_TOKEN
+app.get('/admin/feradomo-not', (req, res) => {
+  try {
+    if (!ADMIN_TOKEN) {
+      return res
+        .status(500)
+        .send('FERADOMO_ADMIN_TOKEN tanımlı değil. Environment ayarlarını kontrol et.');
+    }
+
+    const { token, showAll } = req.query;
+
+    if (!token || token !== ADMIN_TOKEN) {
+      return res.status(403).send('Yetkisiz erişim. (Geçersiz token)');
+    }
+
+    let notes = readNotes();
+
+    // Varsayılan: sadece onaysızları göster
+    if (showAll !== '1') {
+      notes = notes.filter((n) => !n.approved);
+    }
+
+    const safeToken = encodeURIComponent(token);
+
+    const itemsHtml = notes
+      .map((note) => {
+        const id = escapeHtml(note.id);
+        const fullName = escapeHtml(note.fullName || '');
+        const productCode = escapeHtml(note.productCode || '');
+        const createdAt = escapeHtml(
+          note.createdAt ? new Date(note.createdAt).toLocaleString('tr-TR') : ''
+        );
+        const imgSrc = escapeHtml(note.imageUrl || '');
+
+        const approveUrl = `/api/feradomo-not-approve?id=${encodeURIComponent(
+          note.id
+        )}&token=${safeToken}`;
+
+        const statusLabel = note.approved ? 'Onaylı' : 'Onaysız';
+
+        return `
+          <article class="note-card" data-note-id="${id}">
+            <div class="note-image-wrap">
+              ${
+                imgSrc
+                  ? `<img src="${imgSrc}" alt="El yazısı not – ${fullName}" />`
+                  : '<div class="no-image">Görsel yok</div>'
+              }
+            </div>
+            <div class="note-meta">
+              <div class="note-name">${fullName || 'İsim yok'}</div>
+              <div class="note-code">${productCode || 'Kod yok'}</div>
+              <div class="note-created">${createdAt}</div>
+              <div class="note-status ${
+                note.approved ? 'note-status--approved' : 'note-status--pending'
+              }">${statusLabel}</div>
+            </div>
+            <div class="note-actions">
+              ${
+                note.approved
+                  ? '<button class="note-btn note-btn--disabled" disabled>Onaylı</button>'
+                  : `<button class="note-btn" data-approve-url="${approveUrl}">Onayla</button>`
+              }
+            </div>
+          </article>
+        `;
+      })
+      .join('\n');
+
+    const html = `
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <title>Feradomo Kolektif – Not Yönetimi</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+      background: #050505;
+      color: #f5f1e8;
+    }
+    .page {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px 16px 40px;
+    }
+    .page-header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: baseline;
+      margin-bottom: 16px;
+    }
+    .page-title {
+      font-size: 20px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .page-subtitle {
+      font-size: 13px;
+      opacity: 0.8;
+    }
+    .page-filters {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      font-size: 12px;
+      margin-top: 8px;
+    }
+    .page-link {
+      color: #f5e0bf;
+      text-decoration: none;
+      border-bottom: 1px dotted rgba(245, 224, 191, 0.7);
+    }
+    .page-link:hover {
+      opacity: 0.9;
+    }
+    .notes-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 16px;
+      margin-top: 24px;
+    }
+    @media (min-width: 640px) {
+      .notes-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    @media (min-width: 960px) {
+      .notes-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+    .note-card {
+      background: #111;
+      border-radius: 18px;
+      padding: 10px 10px 8px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .note-image-wrap {
+      background: #000;
+      border-radius: 14px;
+      padding: 8px;
+      overflow: hidden;
+      max-height: 260px;
+    }
+    .note-image-wrap img {
+      width: 100%;
+      height: auto;
+      display: block;
+      object-fit: contain;
+    }
+    .no-image {
+      font-size: 12px;
+      opacity: 0.7;
+      text-align: center;
+      padding: 24px 0;
+    }
+    .note-meta {
+      padding: 4px 4px 2px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      font-size: 12px;
+    }
+    .note-name {
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      opacity: 0.95;
+    }
+    .note-code {
+      font-size: 11px;
+      opacity: 0.8;
+    }
+    .note-created {
+      font-size: 11px;
+      opacity: 0.65;
+    }
+    .note-status {
+      margin-top: 3px;
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      display: inline-block;
+    }
+    .note-status--pending {
+      background: rgba(245, 224, 191, 0.1);
+      color: #f5e0bf;
+    }
+    .note-status--approved {
+      background: rgba(142, 250, 184, 0.1);
+      color: #8efab8;
+    }
+    .note-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 6px;
+    }
+    .note-btn {
+      border-radius: 999px;
+      padding: 6px 14px;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      border: 1px solid #f5e0bf;
+      background: #f5e0bf;
+      color: #1a1208;
+    }
+    .note-btn:hover {
+      opacity: 0.9;
+    }
+    .note-btn--disabled {
+      background: transparent;
+      color: rgba(245, 241, 232, 0.7);
+      border-color: rgba(245, 241, 232, 0.3);
+      cursor: default;
+    }
+    .empty-state {
+      font-size: 13px;
+      opacity: 0.75;
+      margin-top: 24px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="page-header">
+      <div>
+        <div class="page-title">FERADOMO KOLEKTİF – NOT YÖNETİMİ</div>
+        <div class="page-subtitle">
+          Müşterilerin yüklediği el yazısı notları buradan inceleyip onaylayabilirsin.
+        </div>
+      </div>
+      <div class="page-filters">
+        <span>Filtre:</span>
+        <a class="page-link" href="/admin/feradomo-not?token=${safeToken}">Sadece onaysız</a>
+        <span>·</span>
+        <a class="page-link" href="/admin/feradomo-not?token=${safeToken}&showAll=1">Tüm notlar</a>
+      </div>
+    </div>
+
+    ${
+      notes.length
+        ? `<div class="notes-grid">${itemsHtml}</div>`
+        : '<div class="empty-state">Gösterilecek not yok.</div>'
+    }
+  </div>
+
+  <script>
+    (function () {
+      const buttons = document.querySelectorAll('[data-approve-url]');
+      buttons.forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          const url = btn.getAttribute('data-approve-url');
+          if (!url) return;
+
+          btn.disabled = true;
+          const originalText = btn.textContent;
+          btn.textContent = 'Onaylanıyor...';
+
+          try {
+            const res = await fetch(url);
+            const data = await res.json().catch(() => ({}));
+
+            if (!res.ok || !data || data.ok === false) {
+              alert('Onay sırasında bir hata oluştu.');
+              btn.disabled = false;
+              btn.textContent = originalText;
+              return;
+            }
+
+            const card = btn.closest('.note-card');
+            if (card) {
+              card.style.opacity = '0.4';
+              card.style.pointerEvents = 'none';
+            }
+            btn.textContent = 'Onaylandı';
+          } catch (err) {
+            console.error('Approve error', err);
+            alert('Bağlantı hatası. Tekrar dene.');
+            btn.disabled = false;
+            btn.textContent = originalText;
+          }
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
+    `;
+
+    res.send(html);
+  } catch (err) {
+    console.error('GET /admin/feradomo-not error', err);
+    res.status(500).send('Sunucu hatası.');
   }
 });
 
