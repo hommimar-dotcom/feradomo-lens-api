@@ -23,7 +23,7 @@ if (!OPENAI_API_KEY) {
 
 // CORS – Shopify için açık
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*'); // istersem buraya feradomo.com yazabilirsin
+  res.setHeader('Access-Control-Allow-Origin', '*'); // istersen buraya feradomo.com yazabilirsin
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') {
@@ -32,7 +32,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// JSON body (ileride lazım olabilir diye dursun)
+// JSON body (ileride başka şeyler için lazım olabilir diye dursun)
 app.use(express.json({ limit: '5mb' }));
 
 // ---------------------------------------------------
@@ -71,6 +71,7 @@ app.use('/feradomo-notes', express.static(NOTES_DIR));
 app.get('/api/feradomo-not', (req, res) => {
   try {
     const notes = readNotes();
+    console.log(`📖 GET /api/feradomo-not -> ${notes.length} kayıt`);
     res.json(notes);
   } catch (err) {
     console.error('GET /api/feradomo-not error', err);
@@ -124,6 +125,12 @@ app.post('/api/feradomo-not', upload.single('note'), (req, res) => {
     notes.unshift(note);
     writeNotes(notes.slice(0, 200));
 
+    console.log('📝 Yeni not kaydedildi:', {
+      id: note.id,
+      fullName: note.fullName,
+      productCode: note.productCode
+    });
+
     res.json({ ok: true, note });
   } catch (err) {
     console.error('POST /api/feradomo-not error', err);
@@ -146,7 +153,6 @@ app.get('/', (req, res) => {
 // upload.any: Shopify'dan field name değişse bile sorun yaşama
 app.post('/lens', upload.any(), async (req, res) => {
   try {
-    // Gelen dosyayı bul: önce fieldname'i "image" olanı dene, yoksa ilk dosyayı al
     const file =
       (req.files && req.files.find((f) => f.fieldname === 'image')) ||
       (req.files && req.files[0]) ||
@@ -174,7 +180,6 @@ app.post('/lens', upload.any(), async (req, res) => {
     // Shopify tarafında gönderdiğin model değeri (regina / ceres-spatiosa / castrum / custom vs.)
     const selectedModel = req.body.model || 'ceres-spatiosa';
 
-    // Prompt içinde kullanmak için açıklayıcı isimler
     let tableDescription = 'Feradomo microcement coffee table';
     if (selectedModel === 'ceres-spatiosa') {
       tableDescription =
