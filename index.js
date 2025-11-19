@@ -16,14 +16,17 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 const PORT = process.env.PORT || 3000;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
+const ADMIN_TOKEN = process.env.FERADOMO_ADMIN_TOKEN || '';
 
 if (!OPENAI_API_KEY) {
-  console.warn('⚠️ OPENAI_API_KEY tanımlı değil. Lens endpointi çalışırken buna ihtiyacımız var.');
+  console.warn(
+    '⚠️ OPENAI_API_KEY tanımlı değil. Lens endpointi çalışırken buna ihtiyacımız var.'
+  );
 }
 
 // CORS – Shopify için açık
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*'); 
+  res.setHeader('Access-Control-Allow-Origin', '*'); // istersen buraya feradomo.com yazabilirsin
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') {
@@ -32,7 +35,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// JSON body
+// JSON body (ileride başka şeyler için lazım olabilir diye dursun)
 app.use(express.json({ limit: '5mb' }));
 
 // ---------------------------------------------------
@@ -67,7 +70,7 @@ function writeNotes(notes) {
 // Yüklenen not görsellerini public olarak servis et
 app.use('/feradomo-notes', express.static(NOTES_DIR));
 
-// Tüm notları getir
+// Tüm notları getir (approvedOnly parametresi ile filtre)
 app.get('/api/feradomo-not', (req, res) => {
   try {
     const { approvedOnly } = req.query;
@@ -77,14 +80,15 @@ app.get('/api/feradomo-not', (req, res) => {
       notes = notes.filter((n) => n && n.approved);
     }
 
-    console.log(`📖 GET /api/feradomo-not (approvedOnly=${approvedOnly}) -> ${notes.length} kayıt`);
+    console.log(
+      `📖 GET /api/feradomo-not (approvedOnly=${approvedOnly}) -> ${notes.length} kayıt`
+    );
     res.json(notes);
   } catch (err) {
     console.error('GET /api/feradomo-not error', err);
     res.status(500).json({ error: 'server_error' });
   }
 });
-
 
 // Yeni not kaydet – FormData ile "note" dosyası + fullName + productCode
 app.post('/api/feradomo-not', upload.single('note'), (req, res) => {
@@ -119,7 +123,7 @@ app.post('/api/feradomo-not', upload.single('note'), (req, res) => {
     const filename = `note-${id}${ext}`;
     const filepath = path.join(NOTES_DIR, filename);
 
-    // Buffer'ı diske yaz
+    // Buffer'ı direkt diske yaz
     fs.writeFileSync(filepath, file.buffer);
 
     const publicUrl = `/feradomo-notes/${filename}`;
@@ -131,7 +135,7 @@ app.post('/api/feradomo-not', upload.single('note'), (req, res) => {
       fullName: fullName.slice(0, 80),
       productCode: productCode.slice(0, 80),
       createdAt: new Date().toISOString(),
-      approved: false
+      approved: false // onay süreci için default false
     };
 
     // En başa ekle, maksimum 200 kayıt tut
@@ -144,9 +148,70 @@ app.post('/api/feradomo-not', upload.single('note'), (req, res) => {
       productCode: note.productCode
     });
 
-    res.json({ ok: true, note });
+    res.json({
+      ok: true,
+      note,
+      message: 'Notun kaydedildi. Teşekkür ederiz.'
+    });
   } catch (err) {
     console.error('POST /api/feradomo-not error', err);
+    res.status(500).json({ ok: false, error: 'server_error' });
+  }
+});
+
+// Belirli bir notu onaylamak için basit admin endpoint
+// Kullanım: GET /api/feradomo-not-approve?id=1763517737447&token=FERADOMO_ADMIN_TOKEN
+app.get('/api/feradomo-not-approve', (req, res) => {
+  try {
+    if (!ADMIN_TOKEN) {
+      return res.status(500).json({
+        ok: false,
+        error: 'no_admin_token',
+        message: 'FERADOMO_ADMIN_TOKEN tanımlı değil.'
+      });
+    }
+
+    const { id, token } = req.query;
+
+    if (!id || !token) {
+      return res.status(400).json({
+        ok: false,
+        error: 'missing_params',
+        message: 'id ve token zorunludur.'
+      });
+    }
+
+    if (token !== ADMIN_TOKEN) {
+      return res.status(403).json({
+        ok: false,
+        error: 'forbidden',
+        message: 'Geçersiz admin token.'
+      });
+    }
+
+    const notes = readNotes();
+    const idx = notes.findIndex((n) => String(n.id) === String(id));
+
+    if (idx === -1) {
+      return res.status(404).json({
+        ok: false,
+        error: 'not_found',
+        message: 'Not bulunamadı.'
+      });
+    }
+
+    notes[idx].approved = true;
+    writeNotes(notes);
+
+    console.log('✅ Not onaylandı:', {
+      id: notes[idx].id,
+      fullName: notes[idx].fullName,
+      productCode: notes[idx].productCode
+    });
+
+    return res.json({ ok: true, note: notes[idx] });
+  } catch (err) {
+    console.error('GET /api/feradomo-not-approve error', err);
     res.status(500).json({ ok: false, error: 'server_error' });
   }
 });
@@ -162,6 +227,8 @@ app.get('/', (req, res) => {
 // 3) FERADOMO LENS – SEHPA YERLEŞTİRME
 // ------------------------------------
 
+// Ana endpoint: /lens
+// upload.any: Shopify'dan field name değişse bile sorun yaşama
 app.post('/lens', upload.any(), async (req, res) => {
   try {
     const file =
@@ -188,7 +255,7 @@ app.post('/lens', upload.any(), async (req, res) => {
       });
     }
 
-    // Shopify tarafında gönderdiğin model değeri 
+    // Shopify tarafında gönderdiğin model değeri (regina / ceres-spatiosa / castrum / custom vs.)
     const selectedModel = req.body.model || 'ceres-spatiosa';
 
     let tableDescription = 'Feradomo microcement coffee table';
